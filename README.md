@@ -57,8 +57,8 @@ Bisa daftarin **banyak akun** buat nelpon/video call. Kalau sender 1 lagi sibuk 
 ## 🚀 Setup
 
 ```bash
-git clone https://github.com/Yamzzdev/raabot-Caller
-cd raabot-Caller
+git clone https://github.com/araaa262/play.git
+cd play
 
 # 1. Isi apikey theresav (buat .playvideo) di config.go -> TheresavAPIKey
 #    atau: export THERESAV_APIKEY="apikey_kamu" (env selalu menang)
@@ -74,8 +74,8 @@ go build -o raabot .
 
 Pakai **PM2** biar jalan permanen:
 ```bash
-pm2 start ./raabot --name raabot
-pm2 logs raabot
+pm2 start ./raabot --name play
+pm2 logs play
 ```
 
 ---
