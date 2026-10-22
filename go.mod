@@ -1,4 +1,4 @@
-module yamzzbot
+module raabot
 
 go 1.25.0
 

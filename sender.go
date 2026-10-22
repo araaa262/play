@@ -309,6 +309,6 @@ func mainSenderEvents(s *Sender, evt any) {
 		pool.logger.Info().Str("sender", s.name).Msg("✅ bot utama connected")
 		_ = s.wa.SendPresence(ctx, types.PresenceAvailable)
 	case *events.LoggedOut:
-		pool.logger.Warn().Msg("⚠️ bot utama logged out — hapus yamzzbot.db & login ulang")
+		pool.logger.Warn().Msg("⚠️ bot utama logged out — hapus raabot.db & login ulang")
 	}
 }

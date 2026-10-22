@@ -1,3 +1,4 @@
+
 package main
 
 import (
@@ -9,49 +10,34 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// API download video: theresav ytmp4. Butuh LINK YouTube + apikey (wajib).
-//
-// ⚠️ APIKEY diatur di config.go (TheresavAPIKey), BUKAN di file ini — biar semua
-// setting bot ngumpul di satu tempat dan gampang dianalisis/di-audit.
-// Daftar dulu buat dapet apikey-mu sendiri di: https://api.theresav.biz.id
-//
-// 🙏 Bot ini TIDAK BERAFILIASI dengan API theresav — cuma make API-nya doang.
-const (
-	theresavYtmp4URL = "https://api.theresav.biz.id/download/ytmp4"
-)
+const theresavYtmp4URL = "https://api.theresav.eu/api/download/ytmp4"
 
-// theresavAPIKey: pakai environment THERESAV_APIKEY kalau ada (buat deploy pakai
-// secret manager), kalau nggak pakai TheresavAPIKey dari config.go.
-func theresavAPIKey() string {
-	if k := os.Getenv("THERESAV_APIKEY"); k != "" {
-		return k
-	}
-	return TheresavAPIKey
-}
-
-// browserUA dipasang di request ke API & CDN download.
 const browserUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
-// downloadClient MEMAKSA HTTP/1.1 (TLSNextProto kosong) — beberapa server (termasuk
-// CDN theresav) nge-RST stream HTTP/2 dengan "INTERNAL_ERROR", yang tadi bikin
-// "gagal nulis file: stream error". HTTP/1.1 nghindarin itu.
+func theresavAPIKey() string {
+	if k := strings.TrimSpace(os.Getenv("THERESAV_APIKEY")); k != "" {
+		return k
+	}
+	return strings.TrimSpace(TheresavAPIKey)
+}
+
 var downloadClient = &http.Client{
 	Timeout: 300 * time.Second,
 	Transport: &http.Transport{
 		ForceAttemptHTTP2: false,
-		TLSNextProto:      map[string]func(string, *tls.Conn) http.RoundTripper{},
+		TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{},
 	},
 }
 
-// videoTrack = respons API theresav (field-nya flat, gak nested). Field download_url
-// itu link file mp4-nya.
 type videoTrack struct {
 	Status      bool   `json:"status"`
+	Creator     string `json:"creator"`
 	Title       string `json:"title"`
 	Channel     string `json:"channel"`
 	DurationSec int    `json:"duration_sec"`
@@ -62,50 +48,73 @@ type videoTrack struct {
 	DownloadURL string `json:"download_url"`
 }
 
-// fetchVideoPlay ambil metadata + link download dari API theresav. ytURL WAJIB link
-// YouTube. apikey dikirim otomatis.
 func fetchVideoPlay(ytURL string) (*videoTrack, error) {
-	apikey := theresavAPIKey()
-	if apikey == "" {
-		return nil, fmt.Errorf("apikey theresav kosong — daftar dulu di https://api.theresav.biz.id, " +
-			"terus isi ke TheresavAPIKey di config.go atau set env THERESAV_APIKEY")
+	apiKey := theresavAPIKey()
+	if apiKey == "" {
+		return nil, fmt.Errorf("API key Theresav kosong: isi THERESAV_APIKEY atau TheresavAPIKey di config.go")
 	}
-	endpoint := fmt.Sprintf("%s?url=%s&resolution=%s&apikey=%s",
-		theresavYtmp4URL, url.QueryEscape(ytURL), TheresavResolution, url.QueryEscape(apikey))
+
+	ytURL = strings.TrimSpace(ytURL)
+	if ytURL == "" {
+		return nil, fmt.Errorf("URL video kosong")
+	}
+
+	params := url.Values{}
+	params.Set("url", ytURL)
+	params.Set("resolution", TheresavResolution)
+
+	endpoint := theresavYtmp4URL + "?" + params.Encode()
 
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("gagal membuat request: %w", err)
 	}
+
+	req.Header.Set("x-apikey", apiKey)
+	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", browserUA)
 
-	httpClient := &http.Client{Timeout: 120 * time.Second}
-	resp, err := httpClient.Do(req)
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request gagal: %w", err)
+		return nil, fmt.Errorf("request API gagal: %w", err)
 	}
 	defer resp.Body.Close()
 
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil, fmt.Errorf("gagal membaca respons API: %w", err)
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API status %d", resp.StatusCode)
+		return nil, fmt.Errorf("API status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var parsed videoTrack
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, fmt.Errorf("response gak valid: %w", err)
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, fmt.Errorf("respons JSON API tidak valid: %w", err)
 	}
-	if !parsed.Status || parsed.DownloadURL == "" {
-		return nil, fmt.Errorf("link gak ke-resolve — pastiin itu link YouTube valid")
+
+	if !parsed.Status {
+		return nil, fmt.Errorf("API gagal memproses video: %s", strings.TrimSpace(string(body)))
 	}
+
+	if strings.TrimSpace(parsed.DownloadURL) == "" {
+		return nil, fmt.Errorf("API berhasil merespons tetapi download_url kosong")
+	}
+
 	return &parsed, nil
 }
 
-// downloadVideo download file video ke folder temp/, balikin path-nya. Retry 3x dan
-// pakai HTTP/1.1 (via downloadClient) biar tahan "stream error INTERNAL_ERROR".
 func downloadVideo(downloadURL string) (string, error) {
-	if err := os.MkdirAll("temp", 0o755); err != nil {
+	if strings.TrimSpace(downloadURL) == "" {
+		return "", fmt.Errorf("download URL kosong")
+	}
+
+	if err := os.MkdirAll("temp", 0755); err != nil {
 		return "", err
 	}
+
 	path := filepath.Join("temp", uuid.New().String()+".mp4")
 
 	var lastErr error
@@ -114,42 +123,53 @@ func downloadVideo(downloadURL string) (string, error) {
 		if lastErr == nil {
 			return path, nil
 		}
-		fmt.Printf("[downloadVideo] attempt %d gagal: %v\n", attempt, lastErr)
-		os.Remove(path)
+
+		fmt.Printf("[downloadVideo] percobaan %d gagal: %v\n", attempt, lastErr)
+		_ = os.Remove(path)
+
 		if attempt < 3 {
 			time.Sleep(2 * time.Second)
 		}
 	}
+
 	return "", lastErr
 }
 
-// downloadOnce sekali percobaan download ke path.
 func downloadOnce(downloadURL, path string) error {
 	req, err := http.NewRequest(http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return err
 	}
+
 	req.Header.Set("User-Agent", browserUA)
 	req.Header.Set("Accept", "*/*")
 
 	resp, err := downloadClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("request gagal: %w", err)
+		return fmt.Errorf("request download gagal: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("status %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("download status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	out, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 
 	if _, err := io.Copy(out, resp.Body); err != nil {
-		return fmt.Errorf("gagal nulis file: %w", err)
+		_ = out.Close()
+		_ = os.Remove(path)
+		return fmt.Errorf("gagal menyimpan video: %w", err)
 	}
+
+	if err := out.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+
 	return nil
 }

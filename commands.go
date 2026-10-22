@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	meowcaller "github.com/purpshell/meowcaller"
@@ -158,7 +160,7 @@ func handleMessage(ctx context.Context, evt *events.Message) {
 		}
 		sendText(ctx, evt.Info.Chat, menuText(ownerSender))
 
-	case "ping":
+	case "ping", "uptime2":
 		if !requirePublicOrOwner(ownerSender) {
 			return
 		}
@@ -327,14 +329,105 @@ func menuText(ownerSender bool) string {
 }
 
 func handlePing(ctx context.Context, evt *events.Message) {
+	started := time.Now()
 	delay := time.Since(evt.Info.Timestamp)
 	if delay < 0 {
 		delay = 0
 	}
-	sendText(ctx, evt.Info.Chat, fmt.Sprintf(
-		"🏓 *Pong!*\n⏱️ Latency : %dms\n🕐 Uptime  : %s\n📡 Mode    : %s",
-		delay.Milliseconds(), formatDuration(time.Since(startTime)), strings.ToUpper(getMode()),
-	))
+	latency := time.Since(started)
+	memTotal, memUsed, memUsage := systemMemory()
+	diskTotal, diskUsed, diskUsage := systemDisk(".")
+	cpuModel, cpuCount := systemCPU()
+	platform := runtime.GOOS + "/" + runtime.GOARCH
+	text := fmt.Sprintf("🚀 *%s SERVER STATUS*\n\n🖥️ Platform: %s\n💾 Processor: %d Core\n⚙️ CPU Model: %s\n🕒 Server Uptime: %s\n🤖 Bot Uptime: %s\n\n📊 *Stats*\n- Speed: %d ms\n- Message Delay: %d ms\n- Memory: %s / %s (%.1f%%)\n- Storage: %.2f / %.2f GB (%.1f%%)\n- Mode: %s",
+		strings.ToUpper(BotName), platform, cpuCount, cpuModel,
+		formatDuration(time.Since(startTime)), formatDuration(time.Since(startTime)),
+		latency.Milliseconds(), delay.Milliseconds(), humanBytes(memUsed), humanBytes(memTotal), memUsage,
+		diskUsed, diskTotal, diskUsage, strings.ToUpper(getMode()))
+	sendText(ctx, evt.Info.Chat, text)
+}
+
+func humanBytes(n uint64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := uint64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+func systemMemory() (total, used uint64, percent float64) {
+	// Linux provides system-wide memory details in /proc/meminfo.
+	b, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		return m.Sys, m.Alloc, float64(m.Alloc) * 100 / float64(max64(m.Sys, 1))
+	}
+	vals := map[string]uint64{}
+	for _, line := range strings.Split(string(b), "\n") {
+		var key string
+		var kb uint64
+		if _, err := fmt.Sscanf(line, "%s %d kB", &key, &kb); err == nil {
+			vals[strings.TrimSuffix(key, ":")] = kb * 1024
+		}
+	}
+	total = vals["MemTotal"]
+	available := vals["MemAvailable"]
+	if available > total {
+		available = 0
+	}
+	used = total - available
+	if total > 0 {
+		percent = float64(used) * 100 / float64(total)
+	}
+	return
+}
+
+func systemDisk(path string) (totalGB, usedGB, percent float64) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(path, &st); err != nil {
+		return 0, 0, 0
+	}
+	total := st.Blocks * uint64(st.Bsize)
+	free := st.Bavail * uint64(st.Bsize)
+	used := total - free
+	totalGB, usedGB = float64(total)/(1024*1024*1024), float64(used)/(1024*1024*1024)
+	if total > 0 {
+		percent = float64(used) * 100 / float64(total)
+	}
+	return
+}
+
+func systemCPU() (model string, count int) {
+	count = runtime.NumCPU()
+	b, err := os.ReadFile("/proc/cpuinfo")
+	if err == nil {
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(line, "model name") {
+				parts := strings.SplitN(line, ":", 2)
+				if len(parts) == 2 {
+					model = strings.TrimSpace(parts[1])
+					break
+				}
+			}
+		}
+	}
+	if model == "" {
+		model = "Unavailable"
+	}
+	return
+}
+
+func max64(a, b uint64) uint64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func formatDuration(d time.Duration) string {

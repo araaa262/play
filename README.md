@@ -1,4 +1,4 @@
-# 🐱 YamzzBot
+# 🐱 RaaaBot
 
 Bot WhatsApp berbasis **Go** ([whatsmeow](https://github.com/tulir/whatsmeow)) buat **nelpon + streaming musik/video** ke call, dengan **multi-sender**, **antrian**, dan fitur **prank**. Pakai [meowcaller](./meowcaller) (WhatsApp 1:1 calling stack, pure Go, di-fork & dipatch lokal) buat signaling/RTP/codec-nya.
 
@@ -57,25 +57,25 @@ Bisa daftarin **banyak akun** buat nelpon/video call. Kalau sender 1 lagi sibuk 
 ## 🚀 Setup
 
 ```bash
-git clone https://github.com/Yamzzdev/YamzzBot-Caller
-cd YamzzBot-Caller
+git clone https://github.com/Yamzzdev/raabot-Caller
+cd raabot-Caller
 
 # 1. Isi apikey theresav (buat .playvideo) di config.go -> TheresavAPIKey
 #    atau: export THERESAV_APIKEY="apikey_kamu" (env selalu menang)
 
 # 2. Download dependency + build
 go mod tidy
-go build -o yamzzbot .
+go build -o raabot .
 
 # 3. Jalanin — pertama kali keluar QR, scan di:
 #    WhatsApp -> Perangkat Tertaut -> Tautkan Perangkat
-./yamzzbot
+./raabot
 ```
 
 Pakai **PM2** biar jalan permanen:
 ```bash
-pm2 start ./yamzzbot --name yamzzbot
-pm2 logs yamzzbot
+pm2 start ./raabot --name raabot
+pm2 logs raabot
 ```
 
 ---
@@ -95,7 +95,7 @@ TheresavResolution      = "720"         // resolusi SOURCE download (bukan resol
 ## 📁 Struktur
 
 ```
-yamzzbot_vid/
+raabot_vid/
 ├── main.go          # entry point + multi-device loader
 ├── sender.go        # sender pool (multi akun), pairing, cek sibuk (audio+video)
 ├── commands.go      # router command, playcall, antrian, menu
@@ -116,7 +116,7 @@ yamzzbot_vid/
 - **Durasi video call max 10 menit** (`maxVideoSeconds` di `videoencode.go`). Video lebih panjang bakal di-loop dari titik itu, bukan diputer full — encode video lama juga makan waktu & RAM lebih banyak, jadi ada batesnya.
 - **LID (privacy ID WhatsApp)**: kalau reply chat di grup dan orangnya pakai LID (`@lid`, bukan nomor asli), bot otomatis coba resolve ke nomor asli. Kalau gagal (belum ke-cache), bakal dikasih pesan error yang jelas — bukan asal nge-dial LID yang gak bisa ditelpon.
 - **Video call cuma 1 aktif per sender** — kalau mau lebih banyak video call bareng, tambah sender lain (`.addsender`).
-- Session tersimpan di `yamzzbot.db` — **JANGAN di-commit / sebarin** (itu kredensial login WA). Udah ke-cover di `.gitignore`.
+- Session tersimpan di `raabot.db` — **JANGAN di-commit / sebarin** (itu kredensial login WA). Udah ke-cover di `.gitignore`.
 - Butuh `ffmpeg` di PATH server.
 
 ---

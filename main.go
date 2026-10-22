@@ -39,11 +39,11 @@ func main() {
 
 	container, err := sqlstore.New(
 		ctx, "sqlite",
-		"file:yamzzbot.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)",
+		"file:raabot.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)",
 		waLog.Zerolog(logger).Sub("db"),
 	)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("gagal buka session store (yamzzbot.db)")
+		logger.Fatal().Err(err).Msg("gagal buka session store (raabot.db)")
 	}
 
 	pool.container = container
@@ -82,8 +82,8 @@ func main() {
 	logger.Info().
 		Str("self", waClient.Store.GetLID().String()).
 		Int("senders", len(pool.list())).
-		Msg("YamzzBot online, siap nerima command")
-	fmt.Printf("\nYamzzBot jalan (%d sender). Kirim \"%sallmenu\". Ctrl+C buat stop.\n", len(pool.list()), Prefix)
+		Msg("RaaaBot online, siap nerima command")
+	fmt.Printf("\nRaaaBot jalan (%d sender). Kirim \"%sallmenu\". Ctrl+C buat stop.\n", len(pool.list()), Prefix)
 
 	<-ctx.Done()
 	for _, s := range pool.list() {
